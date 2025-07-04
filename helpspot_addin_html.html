@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HelpSpot Email Importer</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h2 {
+            color: #0078d4;
+            margin: 0;
+            font-size: 18px;
+        }
+        .config-section {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .button {
+            background: #0078d4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .button:hover {
+            background: #106ebe;
+        }
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .small-text {
+            font-size: 12px;
+            color: #666;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>HelpSpot Email Importer</h2>
+        </div>
+        
+        <div id="statusMessage" class="status" style="display: none;"></div>
+        
+        <div class="config-section">
+            <h3>HelpSpot Configuration</h3>
+            <div class="form-group">
+                <label for="helpspotUrl">HelpSpot URL:</label>
+                <input type="text" id="helpspotUrl" placeholder="https://yourcompany.helpspot.com">
+            </div>
+            <div class="form-group">
+                <label for="helpspotToken">API Token:</label>
+                <input type="password" id="helpspotToken" placeholder="Your HelpSpot API token">
+            </div>
+            <div class="form-group">
+                <label for="defaultCategory">Default Category:</label>
+                <select id="defaultCategory">
+                    <option value="1">General</option>
+                    <option value="2">Technical Support</option>
+                    <option value="3">Billing</option>
+                    <option value="4">Bug Report</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="config-section">
+            <h3>Import Options</h3>
+            <div class="checkbox-group">
+                <input type="checkbox" id="includeAttachments" checked>
+                <label for="includeAttachments">Include attachments</label>
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="markAsImported" checked>
+                <label for="markAsImported">Mark email as imported (yellow category)</label>
+            </div>
+            <div class="form-group">
+                <label for="priorityLevel">Priority Level:</label>
+                <select id="priorityLevel">
+                    <option value="1">Low</option>
+                    <option value="2">Normal</option>
+                    <option value="3">High</option>
+                    <option value="4">Urgent</option>
+                </select>
+            </div>
+        </div>
+        
+        <button class="button" id="importButton" onclick="importSelectedEmails()">
+            Import Selected Emails
+        </button>
+        
+        <button class="button" id="importCurrentButton" onclick="importCurrentEmail()">
+            Import Current Email
+        </button>
+        
+        <div class="small-text">
+            <strong>Note:</strong> This add-in will import the selected emails as new issues in HelpSpot. 
+            Emails will be marked with a yellow category to indicate they've been imported.
+        </div>
+    </div>
+
+    <script>
+        let currentItem = null;
+        
+        Office.onReady((info) => {
+            if (info.host === Office.HostType.Outlook) {
+                loadConfiguration();
+                currentItem = Office.context.mailbox.item;
+            }
+        });
+        
+        function loadConfiguration() {
+            // Load saved configuration from Office settings
+            const helpspotUrl = localStorage.getItem('helpspotUrl') || '';
+            const helpspotToken = localStorage.getItem('helpspotToken') || '';
+            const defaultCategory = localStorage.getItem('defaultCategory') || '1';
+            const priorityLevel = localStorage.getItem('priorityLevel') || '2';
+            
+            document.getElementById('helpspotUrl').value = helpspotUrl;
+            document.getElementById('helpspotToken').value = helpspotToken;
+            document.getElementById('defaultCategory').value = defaultCategory;
+            document.getElementById('priorityLevel').value = priorityLevel;
+        }
+        
+        function saveConfiguration() {
+            localStorage.setItem('helpspotUrl', document.getElementById('helpspotUrl').value);
+            localStorage.setItem('helpspotToken', document.getElementById('helpspotToken').value);
+            localStorage.setItem('defaultCategory', document.getElementById('defaultCategory').value);
+            localStorage.setItem('priorityLevel', document.getElementById('priorityLevel').value);
+        }
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function validateConfiguration() {
+            const url = document.getElementById('helpspotUrl').value;
+            const token = document.getElementById('helpspotToken').value;
+            
+            if (!url || !token) {
+                showStatus('Please configure HelpSpot URL and API token first.', 'error');
+                return false;
+            }
+            
+            return true;
+        }
+        
+        async function importCurrentEmail() {
+            if (!validateConfiguration()) return;
+            
+            const importButton = document.getElementById('importCurrentButton');
+            importButton.disabled = true;
+            importButton.textContent = 'Importing...';
+            
+            try {
+                saveConfiguration();
+                
+                // Get email details
+                const subject = currentItem.subject;
+                const sender = currentItem.from.emailAddress;
+                const senderName = currentItem.from.displayName;
+                const dateReceived = currentItem.dateTimeCreated;
+                
+                // Get email body
+                currentItem.body.getAsync(Office.CoercionType.Html, async (result) => {
+                    if (result.status === Office.AsyncResultStatus.Succeeded) {
+                        const emailBody = result.value;
+                        
+                        const issueData = {
+                            subject: subject,
+                            body: emailBody,
+                            sender: sender,
+                            senderName: senderName,
+                            dateReceived: dateReceived,
+                            category: document.getElementById('defaultCategory').value,
+                            priority: document.getElementById('priorityLevel').value
+                        };
+                        
+                        const success = await createHelpSpotIssue(issueData);
+                        
+                        if (success) {
+                            if (document.getElementById('markAsImported').checked) {
+                                await markEmailAsImported();
+                            }
+                            showStatus('Email imported successfully!', 'success');
+                        } else {
+                            showStatus('Failed to import email. Please check your configuration.', 'error');
+                        }
+                    } else {
+                        showStatus('Failed to read email body.', 'error');
+                    }
+                    
+                    importButton.disabled = false;
+                    importButton.textContent = 'Import Current Email';
+                });
+                
+            } catch (error) {
+                console.error('Import error:', error);
+                showStatus('An error occurred during import.', 'error');
+                importButton.disabled = false;
+                importButton.textContent = 'Import Current Email';
+            }
+        }
+        
+        async function importSelectedEmails() {
+            if (!validateConfiguration()) return;
+            
+            const importButton = document.getElementById('importButton');
+            importButton.disabled = true;
+            importButton.textContent = 'Importing...';
+            
+            try {
+                saveConfiguration();
+                
+                // For this example, we'll import the current email
+                // In a real implementation, you'd need to handle multiple selected emails
+                await importCurrentEmail();
+                
+            } catch (error) {
+                console.error('Import error:', error);
+                showStatus('An error occurred during import.', 'error');
+            } finally {
+                importButton.disabled = false;
+                importButton.textContent = 'Import Selected Emails';
+            }
+        }
+        
+        async function createHelpSpotIssue(issueData) {
+            const helpspotUrl = document.getElementById('helpspotUrl').value;
+            const helpspotToken = document.getElementById('helpspotToken').value;
+            
+            const payload = {
+                sTitle: issueData.subject,
+                sUserId: issueData.sender,
+                sFirstName: issueData.senderName,
+                sLastName: '',
+                sEmail: issueData.sender,
+                sCategory: issueData.category,
+                sPersonAssignedTo: 0,
+                sStatus: 1, // Active
+                fUrgent: issueData.priority > 3 ? 1 : 0,
+                sRequestHistory: issueData.body,
+                dtGMTOpened: new Date().toISOString()
+            };
+            
+            try {
+                const response = await fetch(`${helpspotUrl}/api/index.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        method: 'private.request.create',
+                        sToken: helpspotToken,
+                        ...payload
+                    })
+                });
+                
+                const result = await response.text();
+                
+                // HelpSpot API returns XML, parse for success
+                return result.includes('<request>') && !result.includes('<error>');
+                
+            } catch (error) {
+                console.error('HelpSpot API error:', error);
+                return false;
+            }
+        }
+        
+        async function markEmailAsImported() {
+            // Set the email category to yellow (or another color to indicate import)
+            try {
+                // This would require the email to support categories
+                // In Outlook, this might be implemented differently based on the available APIs
+                currentItem.categories.addAsync([{
+                    displayName: "Imported to HelpSpot",
+                    color: Office.MailboxEnums.CategoryColor.Yellow
+                }]);
+                
+            } catch (error) {
+                console.error('Failed to mark email as imported:', error);
+            }
+        }
+    </script>
+</body>
+</html>

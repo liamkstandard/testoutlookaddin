@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+</head>
+<body>
+    <script>
+        Office.onReady(() => {
+            // Commands are ready
+        });
+        
+        function importToHelpSpot(event) {
+            // Quick import function for ribbon button
+            const item = Office.context.mailbox.item;
+            
+            // Get stored configuration
+            const helpspotUrl = localStorage.getItem('helpspotUrl');
+            const helpspotToken = localStorage.getItem('helpspotToken');
+            
+            if (!helpspotUrl || !helpspotToken) {
+                // Show notification that configuration is needed
+                Office.context.mailbox.item.notificationMessages.addAsync('config-needed', {
+                    type: 'informationalMessage',
+                    message: 'Please configure HelpSpot settings first.',
+                    icon: 'Icon.16x16',
+                    persistent: true
+                });
+                event.completed();
+                return;
+            }
+            
+            // Get email details
+            const subject = item.subject;
+            const sender = item.from.emailAddress;
+            const senderName = item.from.displayName;
+            
+            // Get email body and create issue
+            item.body.getAsync(Office.CoercionType.Html, async (result) => {
+                if (result.status === Office.AsyncResultStatus.Succeeded) {
+                    const emailBody = result.value;
+                    
+                    const issueData = {
+                        subject: subject,
+                        body: emailBody,
+                        sender: sender,
+                        senderName: senderName,
+                        dateReceived: item.dateTimeCreated,
+                        category: localStorage.getItem('defaultCategory') || '1',
+                        priority: localStorage.getItem('priorityLevel') || '2'
+                    };
+                    
+                    try {
+                        const success = await createHelpSpotIssue(issueData, helpspotUrl, helpspotToken);
+                        
+                        if (success) {
+                            // Mark email as imported
+                            await markEmailAsImported(item);
+                            
+                            // Show success notification
+                            Office.context.mailbox.item.notificationMessages.addAsync('import-success', {
+                                type: 'informationalMessage',
+                                message: 'Email imported to HelpSpot successfully!',
+                                icon: 'Icon.16x16',
+                                persistent: false
+                            });
+                        } else {
+                            // Show error notification
+                            Office.context.mailbox.item.notificationMessages.addAsync('import-error', {
+                                type: 'errorMessage',
+                                message: 'Failed to import email to HelpSpot.',
+                                icon: 'Icon.16x16',
+                                persistent: true
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Import error:', error);
+                        Office.context.mailbox.item.notificationMessages.addAsync('import-error', {
+                            type: 'errorMessage',
+                            message: 'An error occurred during import.',
+                            icon: 'Icon.16x16',
+                            persistent: true
+                        });
+                    }
+                }
+                
+                event.completed();
+            });
+        }
+        
+        async function createHelpSpotIssue(issueData, helpspotUrl, helpspotToken) {
+            const payload = {
+                sTitle: issueData.subject,
+                sUserId: issueData.sender,
+                sFirstName: issueData.senderName,
+                sLastName: '',
+                sEmail: issueData.sender,
+                sCategory: issueData.category,
+                sPersonAssignedTo: 0,
+                sStatus: 2, // Completed (2 = Completed, 1 = Active, 3 = Closed)
+                fUrgent: issueData.priority > 3 ? 1 : 0,
+                sRequestHistory: issueData.body,
+                dtGMTOpened: new Date().toISOString(),
+                dtGMTClosed: new Date().toISOString() // Set closed date since it's completed
+            };
+            
+            try {
+                const response = await fetch(`${helpspotUrl}/api/index.php`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        method: 'private.request.create',
+                        sToken: helpspotToken,
+                        ...payload
+                    })
+                });
+                
+                const result = await response.text();
+                return result.includes('<request>') && !result.includes('<e>');
+                
+            } catch (error) {
+                console.error('HelpSpot API error:', error);
+                return false;
+            }
+        }
+        
+        async function markEmailAsImported(item) {
+            try {
+                // Add yellow category to indicate import
+                item.categories.addAsync([{
+                    displayName: "Imported to HelpSpot",
+                    color: Office.MailboxEnums.CategoryColor.Yellow
+                }]);
+            } catch (error) {
+                console.error('Failed to mark email as imported:', error);
+            }
+        }
+        
+        // Register the function
+        Office.actions.associate("importToHelpSpot", importToHelpSpot);
+    </script>
+</body>
+</html>
